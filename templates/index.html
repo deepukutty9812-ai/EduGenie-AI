@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_name }} — Learning Assistant</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}" />
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">AI LEARNING ASSISTANT</span>
+        <h1>EduGenie</h1>
+        <p>Ask, understand, practice, summarize, and build a learning path.</p>
+      </div>
+      <div class="status" id="status">Checking API…</div>
+    </header>
+
+    <section class="card">
+      <label for="task">Choose a learning task</label>
+      <select id="task">
+        <option value="qa">Ask a Question</option>
+        <option value="explain">Explain a Concept</option>
+        <option value="quiz">Generate Quiz</option>
+        <option value="summarize">Summarize Text</option>
+        <option value="learn">Recommend Learning Path</option>
+      </select>
+
+      <div id="levelWrap" class="hidden">
+        <label for="level">Learner level</label>
+        <select id="level">
+          <option value="beginner">Beginner</option>
+          <option value="intermediate">Intermediate</option>
+          <option value="advanced">Advanced</option>
+        </select>
+      </div>
+
+      <label for="inputText" id="inputLabel">Your question</label>
+      <textarea id="inputText" rows="9" placeholder="Ask something like: Which is the largest ocean?"></textarea>
+
+      <button id="submitBtn">Generate Answer</button>
+      <div id="error" class="error hidden"></div>
+    </section>
+
+    <section class="card result-card">
+      <div class="result-header">
+        <h2>Result</h2>
+        <button id="copyBtn" class="secondary hidden">Copy</button>
+      </div>
+      <div id="result" class="result empty">Your result will appear here.</div>
+    </section>
+  </main>
+
+  <script>
+    const task = document.getElementById("task");
+    const levelWrap = document.getElementById("levelWrap");
+    const level = document.getElementById("level");
+    const inputText = document.getElementById("inputText");
+    const inputLabel = document.getElementById("inputLabel");
+    const submitBtn = document.getElementById("submitBtn");
+    const result = document.getElementById("result");
+    const errorBox = document.getElementById("error");
+    const status = document.getElementById("status");
+    const copyBtn = document.getElementById("copyBtn");
+
+    const config = {
+      qa: {
+        label: "Your question",
+        placeholder: "Ask something like: Which is the largest ocean?",
+        button: "Answer Question"
+      },
+      explain: {
+        label: "Topic to explain",
+        placeholder: "Example: Pythagoras theorem",
+        button: "Explain Concept"
+      },
+      quiz: {
+        label: "Passage or topic",
+        placeholder: "Paste a passage from your study material…",
+        button: "Generate Quiz"
+      },
+      summarize: {
+        label: "Text to summarize",
+        placeholder: "Paste a paragraph or longer educational passage…",
+        button: "Summarize"
+      },
+      learn: {
+        label: "Topic to learn",
+        placeholder: "Example: SQL",
+        button: "Build Learning Path"
+      }
+    };
+
+    function setTaskUI() {
+      const selected = config[task.value];
+      inputLabel.textContent = selected.label;
+      inputText.placeholder = selected.placeholder;
+      submitBtn.textContent = selected.button;
+      levelWrap.classList.toggle("hidden", !["explain", "learn"].includes(task.value));
+    }
+
+    task.addEventListener("change", setTaskUI);
+
+    async function checkHealth() {
+      try {
+        const response = await fetch("/health");
+        const data = await response.json();
+        status.textContent = data.gemini_configured ? "● API ready" : "● Add Gemini key";
+        status.className = data.gemini_configured ? "status ready" : "status warning";
+      } catch {
+        status.textContent = "● API unavailable";
+        status.className = "status warning";
+      }
+    }
+
+    function escapeHtml(value) {
+      return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function renderQuiz(data) {
+      return data.questions.map((q, index) => `
+        <article class="quiz-question">
+          <h3>${index + 1}. ${escapeHtml(q.question)}</h3>
+          <div class="options">
+            ${q.options.map(option => `
+              <button class="option" data-answer="${escapeHtml(option)}">${escapeHtml(option)}</button>
+            `).join("")}
+          </div>
+          <div class="feedback hidden"></div>
+          <div class="answer hidden" data-correct="${escapeHtml(q.correct_answer)}">
+            <strong>Correct answer:</strong> ${escapeHtml(q.correct_answer)}<br />
+            ${escapeHtml(q.explanation)}
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function attachQuizHandlers() {
+      document.querySelectorAll(".quiz-question").forEach(question => {
+        const correct = question.querySelector(".answer").dataset.correct;
+        question.querySelectorAll(".option").forEach(button => {
+          button.addEventListener("click", () => {
+            const answer = button.dataset.answer;
+            const feedback = question.querySelector(".feedback");
+            const answerBox = question.querySelector(".answer");
+            feedback.classList.remove("hidden");
+            if (answer === correct) {
+              feedback.textContent = "Correct!";
+              feedback.className = "feedback correct";
+            } else {
+              feedback.textContent = "Not quite. See the correct answer below.";
+              feedback.className = "feedback wrong";
+            }
+            answerBox.classList.remove("hidden");
+          });
+        });
+      });
+    }
+
+    async function submit() {
+      const value = inputText.value.trim();
+      if (!value) {
+        errorBox.textContent = "Please enter some text first.";
+        errorBox.classList.remove("hidden");
+        return;
+      }
+
+      errorBox.classList.add("hidden");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Working…";
+      result.className = "result loading";
+      result.textContent = "EduGenie is preparing your response…";
+      copyBtn.classList.add("hidden");
+
+      const endpoints = {
+        qa: "/qa",
+        explain: "/explain",
+        quiz: "/quiz",
+        summarize: "/summarize",
+        learn: "/learn/recommendations"
+      };
+
+      const body = task.value === "qa"
+        ? { question: value }
+        : ["explain", "learn"].includes(task.value)
+          ? { topic: value, level: level.value }
+          : { text: value };
+
+      try {
+        const response = await fetch(endpoints[task.value], {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Request failed.");
+
+        if (task.value === "quiz") {
+          result.className = "result";
+          result.innerHTML = renderQuiz(data);
+          attachQuizHandlers();
+        } else {
+          const text = data.answer || data.explanation || data.summary || data.learning_path;
+          result.className = "result";
+          result.textContent = text;
+          copyBtn.classList.remove("hidden");
+        }
+      } catch (error) {
+        result.className = "result empty";
+        result.textContent = "Something went wrong.";
+        errorBox.textContent = error.message;
+        errorBox.classList.remove("hidden");
+      } finally {
+        submitBtn.disabled = false;
+        setTaskUI();
+      }
+    }
+
+    submitBtn.addEventListener("click", submit);
+
+    copyBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(result.textContent);
+      copyBtn.textContent = "Copied";
+      setTimeout(() => copyBtn.textContent = "Copy", 1200);
+    });
+
+    setTaskUI();
+    checkHealth();
+  </script>
+</body>
+</html>
