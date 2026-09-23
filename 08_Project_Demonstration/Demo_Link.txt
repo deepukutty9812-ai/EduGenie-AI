@@ -1,0 +1,21 @@
+EDUGENIE – GOOGLE GEMINI POWERED LEARNING ASSISTANT
+
+Project Demo Link
+
+GitHub Repository:
+https://github.com/deepukutty9812-ai/EduGenie-AI
+
+Live Demo:
+Not deployed
+
+Local Demo:
+http://127.0.0.1:8000
+
+API Documentation:
+http://127.0.0.1:8000/docs
+
+Health Check:
+http://127.0.0.1:8000/health
+
+Note:
+The application can be run locally using the instructions provided in the project README.md file.
